@@ -1,4 +1,5 @@
 require("dotenv").config();
+require("log-timestamp");
 
 var app = require("./app");
 var port = process.env.PORT || 8081;
