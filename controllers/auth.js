@@ -36,8 +36,9 @@ router.post("/sign-in", parseForm, (req, res) => {
     .query(query, values)
     .then(dbRes => {
       // No user found return error
-      if (dbRes.rowCount < 1)
+      if (dbRes.rowCount < 1) {
         return sendError(res, "No users found with the specified email");
+      }
 
       // Create the user object
       user.id = dbRes.rows[0].user_id;

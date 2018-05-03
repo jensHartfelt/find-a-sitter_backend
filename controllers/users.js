@@ -1,31 +1,15 @@
 const express = require("express");
 const router = express.Router();
+const fs = require("fs");
 const db = require("../db");
 const bcrypt = require("bcryptjs");
 const request = require("request");
-const nodemailer = require("nodemailer");
 const saltRounds = 10;
+const mailService = require("../utilities/mailService");
 const verifyToken = require("../utilities/verifyToken");
 const parseForm = require("../utilities/parseForm");
 const sendError = require("../utilities/sendError");
 const generateCode = require("../utilities/generateCode");
-
-// var transporter = nodemailer.createTransport({
-//   host: "smtp.gmail.com",
-//   port: 465,
-//   secure: true,
-//   auth: {
-//     user: "sjellesto@gmail.com",
-//     pass: "gyrocopter"
-//   }
-// });
-
-// transporter.verify((err, succes) => {
-//   if (err) {
-//     return console.log("Unable to connect to mail server", err);
-//   }
-//   console.log("Mail server ready");
-// });
 
 /******** Sign up ********/
 router.post("/", parseForm, (req, res) => {
@@ -43,6 +27,7 @@ router.post("/", parseForm, (req, res) => {
     var emailConfirmCode = generateCode(12);
     var emailConfirmHash = "";
 
+    // Check if any required values are undefined
     if (
       typeof email == "undefined" ||
       typeof firstName == "undefined" ||
@@ -59,6 +44,7 @@ router.post("/", parseForm, (req, res) => {
   }
 
   // Describes the amount af async actions needed to complete before inserting a user
+  // (it's all hashing functions so it should practically be instant)
   var jobCount = 3;
 
   // Hash password
@@ -70,27 +56,26 @@ router.post("/", parseForm, (req, res) => {
       insertUser();
     });
 
-  // Create hash value for checking if the sms verification is valid
+  // Hash phone confirmation
   bcrypt
     .hash(phoneConfirmCode + process.env.VERIFICATION_SECRET, saltRounds)
     .then(hashedPhoneConfirmCode => {
       phoneConfirmHash = hashedPhoneConfirmCode;
       jobCount--;
       insertUser();
-      sendVerificationCodeToPhone();
     });
 
-  // Create hash value for mail-system
+  // Hash email confirmation
   bcrypt
     .hash(emailConfirmCode + process.env.VERIFICATION_SECRET, saltRounds)
     .then(hashedEmailConfirmCode => {
       emailConfirmHash = hashedEmailConfirmCode;
       jobCount--;
       insertUser();
-      sendVerificationCodeToEmail();
     });
 
   function insertUser() {
+    // Check if all that hashing is done...
     if (jobCount > 0) {
       return;
     }
@@ -109,6 +94,7 @@ router.post("/", parseForm, (req, res) => {
       email_confirmed,
       phone_confirmed
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, false)`;
+
     // Collect the values
     var values = [
       email,
@@ -121,11 +107,15 @@ router.post("/", parseForm, (req, res) => {
       emailConfirmHash,
       phoneConfirmHash
     ];
+
     // Query the db
     db
       .query(query, values)
       .then(dbRes => {
         if (dbRes.rowCount == 1) {
+          sendVerificationCodeToPhone();
+          sendVerificationCodeToEmail();
+
           return res.json({
             status: "OK",
             message: "User signed up"
@@ -146,50 +136,92 @@ router.post("/", parseForm, (req, res) => {
   }
 
   function sendVerificationCodeToPhone() {
-    console.log("Send to phone");
     var formData = {
-      apiToken: "$2y$10$q7taqR1/vh8Pytcxmd/LpudesUzf1AnNV/wec2DOuCcycuNwDTSSW",
+      apiToken: process.env.SMS_API_TOKEN,
       mobile: phone,
       message: "You confirmation code is: XXXX"
     };
-    request.post(
-      { url: "http://smses.io/api-send-sms.php", formData: formData },
-      function optionalCallback(err, httpResponse, body) {
-        if (err) {
-          return console.log("SENDING MESSAGE FAILED:", err, body);
-        } else {
-          console.log("OK - message sent to " + phone, body);
-        }
-      }
-    );
-
-    // var formData = {
-    //   apiToken: "$2y$10$q7taqR1/vh8Pytcxmd/LpudesUzf1AnNV/wec2DOuCcycuNwDTSSW",
-    //   mobile: phone,
-    //   message: "You confirmation code is: " + phoneConfirmCode
-    // };
     // request.post(
-    //   {
-    //     url: "http://smses.io/api-send-sms.php",
-    //     formData
-    //   },
-    //   (err, res, body) => {
+    //   { url: "http://smses.io/api-send-sms.php", formData: formData },
+    //   function optionalCallback(err, httpResponse, body) {
     //     if (err) {
-    //       return console.log("SENDING MESSAGE FAILED:", err);
+    //       return console.log("SENDING MESSAGE FAILED:", err, body);
     //     } else {
-    //       console.log("OK - message sent to " + phone, res, body);
+    //       console.log("OK - message sent to " + phone, body);
     //     }
     //   }
     // );
   }
 
   function sendVerificationCodeToEmail() {
-    console.log("Send to email");
+    fs.readFile("./mail-templates/confirm-code.html", "utf8", (err, file) => {
+      if (err) {
+        return console.log(
+          "ERR users.js -> Confirmation-email-file not read",
+          err
+        );
+      }
+      file = file.replace("{{confirmationCode}}", emailConfirmCode);
+      mailService.sendMail(
+        {
+          from: "noreply@findasitter.tk",
+          to: "sjellest@gmail.com", // REMEMBER TO CHANGE THIS TO ACTUAL EMAIL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+          subject: "Your confirmation code",
+          html: file
+        },
+        (err, result) => {
+          if (err) {
+            return console.log(
+              "ERR users.js -> Confirmation email not send",
+              err
+            );
+          }
+        }
+      );
+    });
   }
 });
 
 /******** Get info about a single user ********/
-router.get("/:userId", verifyToken, (req, res) => {});
+router.get("/:userId", verifyToken, (req, res) => {
+  // Checks if authorized user is the one that's being asked for. If it is, then send email and phone
+  // if it's not, then don't include email and phone in query
+  var conditionalColumns = "";
+  if (req.params.userId == res.locals.authData.user.id) {
+    var conditionalColumns = "email, phone, ";
+  }
+
+  var query = `SELECT user_id, first_name, last_name, ${conditionalColumns} profile_picture, area FROM users WHERE user_id = $1`;
+  var values = [req.params.userId];
+
+  db
+    .query(query, values)
+    .then(dbRes => {
+      if (dbRes.rowCount < 1) {
+        return res.json({
+          status: "OK",
+          message: "No user found"
+        });
+      }
+
+      var user = {
+        id: dbRes.rows[0].user_id,
+        firstName: dbRes.rows[0].first_name,
+        lastName: dbRes.rows[0].last_name,
+        email: dbRes.rows[0].email || "Private",
+        phone: dbRes.rows[0].phone || "Private",
+        profilePicture: dbRes.rows[0].profilePicture,
+        area: dbRes.rows[0].area
+      };
+      return res.json({
+        status: "OK",
+        user
+      });
+    })
+    .catch(err => {
+      return sendError(res, "Could not query the database");
+    });
+});
 
 /******** Update info about a single user ********/
 router.put("/:userId", verifyToken, parseForm, (req, res) => {});
