@@ -27,8 +27,7 @@ router.post("/sign-in", parseForm, (req, res) => {
   let user = {};
 
   // Query and values
-  let query =
-    "SELECT user_id, email, first_name, last_name, password FROM users WHERE email = $1";
+  let query = "SELECT user_id, email, first_name, last_name, password FROM users WHERE email = $1";
   let values = [email];
 
   // Query the db
@@ -125,6 +124,90 @@ router.post("/renew-token/:userId", verifyToken, (req, res) => {
       });
     }
   );
+});
+
+/******** Verify email ********/
+router.post("/verify-email/:confirmCode", verifyToken, (req, res) => {
+  let query = "SELECT email_confirm_hash FROM users WHERE user_id = $1";
+  let values = [res.locals.authData.user.id];
+
+  db
+    .query(query, values)
+    .then(dbRes => {
+      bcrypt
+        .compare(req.params.confirmCode + process.env.VERIFICATION_SECRET, dbRes.rows[0].email_confirm_hash)
+        .then(match => {
+          if (match) {
+            return setUserEmailAsConfirmed();
+          }
+          return sendError(res, "Verification denied. Confirmation codes dont match");
+        })
+        .catch(err => {
+          return sendError(res, "Could not check if codes match.");
+        });
+    })
+    .catch(err => {
+      return sendError(res, "Couldn't find the requested user");
+    });
+
+  function setUserEmailAsConfirmed() {
+    let query = "UPDATE users SET email_confirmed = true WHERE user_id = $1";
+    let values = [res.locals.authData.user.id]; // Im redeclaring this to improve readability
+
+    db
+      .query(query, values)
+      .then(dbRes => {
+        return res.json({
+          status: "OK",
+          message: "Email verified"
+        });
+      })
+      .catch(err => {
+        return sendError(res, "Could not set email as verified. Contact support@findasitter.tk");
+      });
+  }
+});
+
+/******** Verify phone ********/
+router.post("/verify-phone/:confirmCode", verifyToken, (req, res) => {
+  let query = "SELECT phone_confirm_hash FROM users WHERE user_id = $1";
+  let values = [res.locals.authData.user.id];
+
+  db
+    .query(query, values)
+    .then(dbRes => {
+      bcrypt
+        .compare(req.params.confirmCode + process.env.VERIFICATION_SECRET, dbRes.rows[0].phone_confirm_hash)
+        .then(match => {
+          if (match) {
+            return setUserPhoneAsConfirmed();
+          }
+          return sendError(res, "Verification denied. Confirmation codes dont match");
+        })
+        .catch(err => {
+          return sendError(res, "Could not check if codes match.");
+        });
+    })
+    .catch(err => {
+      return sendError(res, "Couldn't find the requested user");
+    });
+
+  function setUserPhoneAsConfirmed() {
+    let query = "UPDATE users SET phone_confirmed = true WHERE user_id = $1";
+    let values = [res.locals.authData.user.id]; // Im redeclaring this to improve readability
+
+    db
+      .query(query, values)
+      .then(dbRes => {
+        return res.json({
+          status: "OK",
+          message: "Phone verified"
+        });
+      })
+      .catch(err => {
+        return sendError(res, "Could not set phone as verified. Contact support@findasitter.tk");
+      });
+  }
 });
 
 module.exports = router;

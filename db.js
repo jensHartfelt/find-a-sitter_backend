@@ -13,7 +13,7 @@ db
     console.log("OK  db.js -> Connected to db");
   })
   .catch(err => {
-    console.log("ERR db.js -> Could not connect to db. Shutting down.");
+    console.log("ERR db.js -> Could not connect to db. Shutting down.", err);
     process.exit();
   });
 
