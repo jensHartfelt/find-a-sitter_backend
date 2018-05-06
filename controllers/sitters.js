@@ -57,8 +57,7 @@ router.get("/", (req, res) => {
 
   var values = [limit, offset];
 
-  db
-    .query(query, values)
+  db.query(query, values)
     .then(dbRes => {
       return res.json({
         status: "OK",
@@ -66,7 +65,6 @@ router.get("/", (req, res) => {
       });
     })
     .catch(err => {
-      console.log(err);
       return sendError(res, "Could not get sitters");
     });
 });
@@ -102,8 +100,9 @@ router.post("/register", verifyToken, parseForm, (req, res) => {
     preferred_working_time,
     years_experience,
     registered_at, 
-    user_id
-  ) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+    user_id,
+    active
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, true)`;
   var values = [
     about,
     salary,
@@ -133,8 +132,15 @@ router.post("/register", verifyToken, parseForm, (req, res) => {
 /******** Edits a sitter ********/
 router.put("/:sitterId", verifyToken, parseForm, (req, res) => {
   // Check if this sitters profile belongs to the authorized user
-  db
-    .query("SELECT u.user_id FROM users u NATURAL JOIN sitters s WHERE sitter_id = $1", [req.params.sitterId])
+  var query = `
+    SELECT 
+      u.user_id 
+    FROM users u 
+    NATURAL JOIN sitters s 
+    WHERE sitter_id = $1`;
+  var values = [req.params.sitterId]
+
+  db.query(query, values)
     .then(dbRes => {
       if (dbRes.rows[0].user_id == res.locals.authData.user.id) {
         return continueToUpdateSitter();
@@ -146,7 +152,7 @@ router.put("/:sitterId", verifyToken, parseForm, (req, res) => {
     });
 
   function continueToUpdateSitter() {
-    var query = "UPDATE sitters s SET ";
+    var query = "UPDATE sitters SET ";
     var values = [];
 
     if (req.fields.about) {
@@ -170,6 +176,11 @@ router.put("/:sitterId", verifyToken, parseForm, (req, res) => {
       query += "years_experience = $" + values.length + ",";
     }
 
+    // If no values were passed (all if statements evaluated to false), return an error
+    if (values.length === 0) {
+      return sendError(res, "No values were passed");
+    }
+
     // Removes trailing comma from SQL query
     query = query.slice(0, -1);
     values.push(req.params.sitterId);
@@ -177,22 +188,15 @@ router.put("/:sitterId", verifyToken, parseForm, (req, res) => {
     // Add the where clause
     query += " WHERE sitter_id = $" + values.length;
 
-    // If no values were passed (all if statements evaluated to false), return an error
-    if (values.length === 0) {
-      return sendError(res, "No values were passed");
-    }
 
-    db
-      .query(query, values)
+    db.query(query, values)
       .then(dbRes => {
-        console.log(dbRes);
         return res.json({
           status: "OK",
           message: "Sitter edited"
         });
       })
       .catch(err => {
-        console.log(err);
         return sendError(res, "Could not query the database.");
       });
   }
@@ -200,9 +204,9 @@ router.put("/:sitterId", verifyToken, parseForm, (req, res) => {
 
 /******** Deactivates a sitter ********/
 router.delete("/:sitterId", verifyToken, (req, res) => {
+
   // Check if this sitters profile belongs to the authorized user
-  db
-    .query("SELECT u.user_id, s.active FROM users u NATURAL JOIN sitters s WHERE sitter_id = $1", [req.params.sitterId])
+  db.query("SELECT u.user_id, s.active FROM users u NATURAL JOIN sitters s WHERE sitter_id = $1", [req.params.sitterId])
     .then(dbRes => {
       if (dbRes.rows.length && dbRes.rows[0].user_id == res.locals.authData.user.id) {
         return continueToDeactivateSitter();
@@ -210,7 +214,6 @@ router.delete("/:sitterId", verifyToken, (req, res) => {
       return sendError(res, "You are not authorized to edit this profile");
     })
     .catch(err => {
-      console.log(err);
       return sendError(res, "Could not query the database.");
     });
 
@@ -218,8 +221,7 @@ router.delete("/:sitterId", verifyToken, (req, res) => {
     var query = "UPDATE sitters SET active = false WHERE sitter_id = $1";
     var values = [req.params.sitterId];
 
-    db
-      .query(query, values)
+    db.query(query, values)
       .then(dbRes => {
         return res.json({
           status: "OK",

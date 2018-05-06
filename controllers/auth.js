@@ -52,7 +52,6 @@ router.post("/sign-in", parseForm, (req, res) => {
         .catch(() => {}); // If passwords don't match
     })
     .catch(err => {
-      console.log(err);
       sendError(res, "code error");
     }); // If the db query has errors
 
@@ -65,10 +64,13 @@ router.post("/sign-in", parseForm, (req, res) => {
      * These will be available for every request to verify that the user
      * making the request isn't trying to spoof the system
      */
-    jwt.sign(
-      { user },
+    jwt.sign({
+        user
+      },
       process.env.JWT_SECRET, // secret
-      { expiresIn: "7 days" }, // expiration
+      {
+        expiresIn: "7 days"
+      }, // expiration
       (err, token) => {
         if (err) return sendError(res, "Unable to create auth-token");
         return res.json({
@@ -110,10 +112,13 @@ router.post("/renew-token/:userId", verifyToken, (req, res) => {
     return sendError(res, "Could not renew auth-token");
   }
 
-  jwt.sign(
-    { user },
+  jwt.sign({
+      user
+    },
     process.env.JWT_SECRET, // secret
-    { expiresIn: "7 days" }, // expiration
+    {
+      expiresIn: "7 days"
+    }, // expiration
     (err, token) => {
       if (err) return sendError(res, "Could not renew auth-token");
       return res.json({
@@ -173,8 +178,7 @@ router.post("/verify-phone/:confirmCode", verifyToken, (req, res) => {
   let query = "SELECT phone_confirm_hash FROM users WHERE user_id = $1";
   let values = [res.locals.authData.user.id];
 
-  db
-    .query(query, values)
+  db.query(query, values)
     .then(dbRes => {
       bcrypt
         .compare(req.params.confirmCode + process.env.VERIFICATION_SECRET, dbRes.rows[0].phone_confirm_hash)

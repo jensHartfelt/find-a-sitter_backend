@@ -16,7 +16,9 @@
     "log-timestamp": "0.1.2",
     "nodemailer": "4.6.4",
     "pg": "7.4.1",
-    "request": "2.85.0"
+    "request": "2.85.0",
+    "sharp": "0.20.2",
+    "uniqid": "4.1.1"
   },
   "author": "Jens Hartfelt",
   "license": "MIT"
